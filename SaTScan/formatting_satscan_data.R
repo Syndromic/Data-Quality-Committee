@@ -1,26 +1,30 @@
-#This script pulls data using ESSENCE APIs
-#it formats ESSENCE data so that it can be used with satscan software to detect data dropoffs 
-#once you enter the ESSENCE URL, pw, username and wd, highlight entire script and run
-#csv file with properly formatted data will be saved to wd file path 
+#This script formats ESSENCE visit count data so that it can be used with satscan software to detect data dropoffs
+#It pulls data from ESSENCE using ESSENCE APIs and assigns C_BioSense_Facility_IDs as ED ID  
 
-##############################################################################
-#SCRIPT SETUP, SET PARAMETERS IN THIS SECTION AND DO NOT EDIT ANY OTHER PART OF THIS SCRIPT
+#once you enter the ESSENCE URL and your pw, username and file path for working directory, highlight entire script and run
+#two csv files, one with visit count data and one with coordinate data will be saved to the wd file path
 
-#setting pw for BioSense. A popup will ask you to enter pw.
-#This authenication info is required for connecting to ESSENCE APIs and tables in BioSense_Platform
-key_set("ESSENCE")
+#################################################################################################################
+# SCRIPT SETUP, EDIT PARAMETERS IN THIS SECTION AND DO NOT EDIT ANY OTHER PART OF THIS SCRIPT
+# enter your ESSENCE username and file path where you would like csv to be saved
+# After username, wd, and URL are entered, highlight entire script and run. 
+# A popup will ask you to enter pw. Enter your BioSense password.
 
-#enter your username and file path where you would like csv to be saved
 username='username'
 wd='wd'
 
-#use API url from table builder page with selected row fields=timeResolution and selected columnField=Facility
+#use API url from table builder page with selected row fields=Date and selected columnField=Facility
 URL <- 'URL'
 
-############################################################################
+#############################################################################
+#setting pw for BioSense. 
+if (!require(keyring)) install.packages('keyring')
+library(keyring)
+key_set("ESSENCE")
+
 #loading packages and installing if not already
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(keyring, httr, jsonlite, readr, dbplyr, odbc, DBI, dplyr, tidyr)
+pacman::p_load(httr, jsonlite, readr, dbplyr, odbc, DBI, dplyr, tidyr)
 httr::set_config(config(ssl_verifypeer = 0L))
 
 #collecting table builder results
@@ -62,9 +66,21 @@ names(ESSENCE_table) <- c('ED', 'Count', 'Date')
 #reformatting date column
 ESSENCE_table$Date <- format(ESSENCE_table$Date, '%Y/%m/%d')
 
+#creating coordinate file
+coord <- ESSENCE_table %>%
+  select(ED) %>%
+  arrange(ED) %>%
+  distinct()
+
+coord_len <- length(coord$ED)-1
+coord_end <- 100000+10*coord_len
+coord$coord_1 <- seq(100000, coord_end, 10)
+coord$coord_2 <- coord$coord_1
+
 #saving data to workin directory
 setwd(wd)
-write.csv(ESSENCE_table, 'satscan_data.csv')
+write.csv(ESSENCE_table, 'satscan_data.csv', row.names = FALSE)
+write.csv(coord, 'coordinate_file.csv', row.names = FALSE)
 
 
 
