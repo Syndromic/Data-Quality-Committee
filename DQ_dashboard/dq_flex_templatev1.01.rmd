@@ -1,0 +1,714 @@
+---
+title: "DQ Dashboard"
+author: "Health Department"
+date: "`r Sys.Date()`"
+params:
+  startdate:
+    input: date
+    label: 'Select Start Date:'
+    value: "08/01/2018"
+  enddate:
+    input: date
+    label: 'Select End Date:'
+    value: "01/31/2019"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+
+#Hello,
+#
+#This is a quick DQ dashboard one can run without having to learn all of R shiny and still have it look good and be easy to share with just an .html doc that still keeps its interactive elements
+#
+#Below you will see commmented out sections with notes or places where you can place your similiar variables.
+# 
+#There are a million ways to do things in R.  This may not be the best, but it works! Find what works best for you, and if you can, share with others so they 
+#so they can learn to.
+
+
+#To ensure this runs as intended, you can run this bit of code to install these packages before you "knit" this, by removing the '#' and then highlighting the code and pressing ctrl+enter on your keyboard.  Then comment it back up because you won't need it again.
+
+#install.packages(flexdashboard)
+#my_packages <-  c("tufte", "tidyverse", "tidytext", "ggplot2", "ggraph", "igraph", "widyr", "stringr", "quanteda", "splitstackshape", "lubridate", "readr", "leaflet", "RColorBrewer", "ggmap", "rgdal", "zipcode", "tigris", "acs", "tidycensus", "DT", "rgeos", "noncensus", "formatR", "shiny", "knitr", "icd", "RODBC", "plotly", "mapview", "fastDummies", "zoo")
+#lapply(my_packages, install.packages, character.only= TRUE)
+
+# To run this report, click the dropdown arrow on the "Knit" button and select "Knit with Parameters" and select your dates.
+
+
+#As you develop this and change it to suit your needs/ variables you can run each "chunk" of code in order to see what works or doesn't by clicking the green arrows in the corner of each of the chunks-- which is an r markdown group of code, usually highlighted in some way and starts and ends with ``` 
+
+# a #*********# will indicate a row where you will need to supply your own similiar variables or change them to the name of your choice
+# I use the dplyr pipe " %>%" so make sure whatever you name those variables is consistent so the code downstream will run without error
+
+#I tried to mark where variables will need to be changed but it might be easier to just rename them to what is already listed in the code.  In the chunk where the data is read in, I have some example code folks can use.
+
+  
+
+
+#load packages
+library(flexdashboard)
+my_packages <-  c("tufte", "tidyverse", "tidytext", "ggplot2", "ggraph", "igraph", "widyr", "stringr", "quanteda", "splitstackshape", "lubridate", "readr", "leaflet", "RColorBrewer", "ggmap", "rgdal", "zipcode", "tigris", "acs", "tidycensus", "DT", "rgeos", "noncensus", "formatR", "shiny", "knitr", "icd", "RODBC", "plotly", "mapview", "fastDummies", "zoo")
+lapply(my_packages, library, character.only= TRUE)
+
+#the next chunk reads in the dataframe where DQ is assessed.
+```
+
+```{r df_read_in, include=FALSE}
+#This normally would connect to our DPH server and send a sql query to it to download data
+  #you can create your own ODBC connection with one of your own servers by searching for "ODBC Data Sources" in windows
+  # and using the windows wizard to create a connection.  Whatever you name that connection you can place in the odbcConnect() function, along with your sql query and it should work 
+
+con <- odbcConnect("name_of_your_ODBC_connection") #*********#  
+start_date <- params$startdate
+start_date <- gsub(x = start_date,"-", "/")
+end_date <- params$enddate
+end_date <- gsub(x = end_date,"-", "/")
+
+
+#example query 
+query_language <- paste("SELECT r.patient_identifier,",
+                        "m.triage_note, m.icd, m.disposition, m.discharge_icd, m.date_time_of_admission,",
+                        "f.facility_identifier, f.facility_name, f.facility_type",
+                        "FROM your_table_name AS r",
+                        "INNER JOIN your_other_table_name AS m",
+                        "ON r.patient_id = m.patient_id",
+                        "INNER JOIN yet_another_table_name AS f",
+                        "ON f.facility_id = m.facility_id",
+                        "WHERE m.date_time_of_admission BETWEEN",
+                        "'",
+                        start_date,
+                        "00:00:00' AND",
+                        "'",
+                        end_date,
+                        "23:59:59'",
+                        "ORDER BY m.date_time_of_admission")
+
+
+
+df <- sqlQuery(con, query_language)
+df$date <- df$date_time_of_admission %>%
+  ymd_hms() %>%
+  as.Date()
+df$facility_name <- df$facility_name %>%
+  as.character()
+select(df, -date_time_of_admission)
+
+# for reading flat files one could just do something like the following:
+## df <-  read_csv(file = "your file path here with \'s as  /'s or drag and drop the folder in the project folder/ working directory in which this file will reside for you and then just name it here") just knit this instead of knitting with parameters.  OR if you know how you can easily create your own parameter that will accept a .csv and you can do something like df <-  read_csv(params$df) or something similiar to  that. 
+
+#After the dataframe (df) is read in through an ODBC or reading a flat file and one doesn't feel like changing every variable name throughout the markdown doc, you  can rename the variables using a statement such as:
+
+# df <- df %>%
+#   rename(date = your_data_variable_name,
+#          facility_name = your_facility_name_variable,
+#          facility_type = your_facility_type_variable,
+#          triage_note = your_triage_note_equivalent,
+#          discharge_icd = your_discharge_icd_variable,
+#          disposition = your_disposition_variable
+#          )
+
+
+#often the date variable is turned into a year month variable for grouping and visualization purposes using the zoo package.  Be sure your date variable is able to be read into that format. It may need to be coerced to another format using lubridate
+
+#Please note:
+#Currently CT only has two "types" of facilities "Hospital" and "Urgent Care".  Much of the map is made around supporting just those two, the map will most likely need to be rewritten if there are other types.  The code there should give enough ideas to get started though
+
+
+#The template was made to also censor facility names, I've left that bit of  code in and marked the locations in case someone else needs to censor facility names.  Otherwise, one can go through the doc and look for the following code and erase or comment it out:
+
+####censor####
+# df$facility_name <- as_factor(df$facility_name)
+# df$facility_name <- as.numeric(df$facility_name)
+```
+
+```{r days_reporting_df, include = FALSE}
+#this is creating the table to show the percent days reported
+
+dfrc <- df %>%
+  group_by(facility_name, facility_type, month =as.yearmon(date), date) %>% #*********# 
+  summarize(enc_tot=n()) %>%
+  group_by(month) %>%
+  group_by(facility_name, facility_type, month) %>%#*********# 
+  summarize(day_reported = n()) %>%
+  mutate(day_rep_perc = round(day_reported/days_in_month(month)*100, digits=2)) %>%
+  select(-day_reported) %>%
+  spread(month, day_rep_perc, fill = 0) %>%
+  rename('Facility Name' = facility_name, "Facility Type" = facility_type) 
+
+####censoring####
+dfrc$'Facility Name' <- as_factor(dfrc$'Facility Name')
+dfrc$'Facility Name' <- as.numeric(dfrc$'Facility Name')
+```
+
+```{r total_encounter_df, include = FALSE}
+#this is creating the table that gives total encounter by facility by month
+
+dft_s <- df %>%
+  group_by(facility_name, facility_type, month =as.yearmon(date)) %>% #*********# 
+  summarize(Encounters = n()) %>%
+  rename("Facility Name" = facility_name, "Facility Type" = facility_type) %>% 
+  spread(month, Encounters, fill= 0)
+####censoring####
+dft_s$'Facility Name' <- as_factor(dft_s$'Facility Name')
+dft_s$'Facility Name' <- as.numeric(dft_s$'Facility Name')
+```   
+
+```{r triage_note_reporting_df, include =FALSE}
+#this is creating the for triage note reporting %
+dftn_s <- df %>%
+  mutate(has_tn = ifelse(is.na(triage_note),0,1), denom = 1) %>%#*********# 
+  group_by(facility_name, facility_type, month =as.yearmon(date)) %>%#*********# 
+  summarize("Triage Note (%)" = round(sum(has_tn)/sum(denom), 2)*100) %>%
+  spread(month, "Triage Note (%)", fill = 0) %>%
+  rename("Facility Name" = facility_name, "Facility Type" = facility_type)
+
+####censoring####
+dftn_s$'Facility Name' <- as_factor(dftn_s$'Facility Name')
+dftn_s$'Facility Name' <- as.numeric(dftn_s$'Facility Name')
+``` 
+
+```{r discharge_icd_reporting_df, include= FALSE }
+# this is creating the table for discharge icd reporting %
+dfdicd_s <- df %>%
+  mutate(has_dicd = ifelse(is.na(discharge_icd),0,1), denom = 1) %>%#*********# 
+  group_by(facility_name, facility_type, month =as.yearmon(date)) %>%#*********# 
+  summarize("Discharge ICD (%)" = round(sum(has_dicd)/sum(denom), 2)*100) %>%
+  spread(month, "Discharge ICD (%)", fill = 0) %>%
+  rename("Facility Name" = facility_name, "Facility Type" = facility_type)
+
+####censoring####
+dfdicd_s$'Facility Name' <- as_factor(dfdicd_s$'Facility Name')
+dfdicd_s$'Facility Name' <- as.numeric(dfdicd_s$'Facility Name')
+```
+
+```{r, disposition_reporting_df, include = FALSE}
+#this is creating the table for disposition reporting %
+dfd_s <- df %>%
+  mutate(has_disp = ifelse(is.na(disposition),0,1), denom = 1) %>%#*********# 
+  group_by(facility_name, facility_type, month =as.yearmon(date)) %>%#*********# 
+  summarize("Disposition (%)" = round(sum(has_disp)/sum(denom), 2)*100) %>%
+  spread(month, "Disposition (%)", fill = 0) %>%
+  rename("Facility Name" = facility_name, "Facility Type" = facility_type)
+
+####censoring####
+dfd_s$'Facility Name' <- as_factor(dfd_s$'Facility Name')
+dfd_s$'Facility Name' <- as.numeric(dfd_s$'Facility Name')
+```
+
+```{r, ct_all, include = FALSE}
+#this is the overall ct aggregate table 
+dfct <- df %>%
+  mutate(has_disp = ifelse(is.na(disposition),0,1), #*********# 
+          has_tn = ifelse(is.na(triage_note),0,1 ), #*********# 
+          has_dicd = ifelse(is.na(discharge_icd),0,1),#*********# 
+          denom = 1) %>%
+  group_by(month =as.yearmon(date)) %>%
+  summarize("Disposition (%)" = round(sum(has_disp)/sum(denom), 2)*100,
+            "Discharge ICD (%)" = round(sum(has_dicd)/sum(denom), 2)*100,
+            "Triage Note (%)" = round(sum(has_tn)/sum(denom), 2)*100,
+            "Total Encounters" = sum(denom)) %>%
+  rename("Month/Year" = month)
+
+join_to_dfct <- df %>%
+  group_by(facility_name, facility_type, month =as.yearmon(date), date) %>%#*********# 
+  summarize(enc_tot=n()) %>%
+  group_by(month) %>%
+  group_by(facility_name, facility_type, month) %>%#*********# 
+  summarize(day_reported = n()) %>%
+  group_by(month) %>%
+  summarize(avg_rep = mean(day_reported))
+join_to_dfct <- join_to_dfct %>% 
+  mutate(avg_rep_perc= round(avg_rep/ days_in_month(month),2)*100) %>%
+  select(-avg_rep) %>%
+  rename("Month/Year"= month)
+
+dfct <- inner_join(dfct, join_to_dfct, "Month/Year") %>%
+  rename("Mean Days Reported (%)"=avg_rep_perc) %>%
+  select(c("Month/Year", "Total Encounters", "Mean Days Reported (%)", everything()))
+```
+
+#CT Plot {data-icon="fas fa-chart-line"}
+
+### CT Plot
+
+```{r}
+
+# this creates the interactive "plotly" plot for CT
+dfp <- dfct
+
+trace_0 <- dfp$`Mean Days Reported (%)`
+trace_1 <- dfp$`Triage Note (%)`
+trace_2 <- dfp$`Discharge ICD (%)`
+trace_3 <- dfp$`Disposition (%)`
+
+x <- as.Date(as.yearmon(dfp$`Month/Year`))
+
+data <- data.frame(x, trace_0, trace_1, trace_2, trace_3)
+
+p <- plot_ly(data, x = ~x, y = ~trace_0, name = 'Average Days Reported (%)', type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~trace_1, name = 'Triage Notes Completeness (%)', mode = 'lines+markers') %>%
+  add_trace(y = ~trace_2, name = 'Discharge ICDs Completeness (%)', mode = 'lines+markers')%>%
+  add_trace(y = ~trace_3, name = 'Disposition Codes Completeness (%)', mode = 'lines+markers') %>%
+  layout(title = "Average CT Syndromic Data Completeness",
+         xaxis = list(title = "Months"),
+         yaxis = list (title = "Percentage (%)"))
+p
+#htmlwidgets::saveWidget(as_widget(p), "p.html") use this to save your plot to it's own .html file
+```
+
+
+#CT {data-icon="fa-list"}
+
+###CT Aggregate
+```{r, include= FALSE}
+# the following  just read and turn the datatables that were created into interactive tables
+```
+
+
+```{r all_ct_dt, echo = FALSE}
+dfct$`Month/Year` <- as.character(dfct$`Month/Year`)
+datatable(head(dfct, n=nrow(dfct)), options = list(
+  pageLength = 12),
+    width = 650, 
+    rownames = FALSE,
+    filter = "top")
+```
+
+#Encounters{data-icon="fas fa-hospital-symbol"}
+
+###Total Encounters by Facility
+
+```{r total_encounters_dt, echo=FALSE}
+datatable(head(dft_s, n=nrow(dft_s)), options = list(
+  pageLength = 5),
+    width = 650, 
+    rownames = FALSE,
+    filter = "top")
+```
+
+#Days(%) {data-icon="far fa-sun"}
+
+###Days Reporting (%)
+
+```{r days_reporting_dt, echo = FALSE}
+datatable(head(dfrc, n=nrow(dfrc)), options = list(
+  pageLength = 5),
+    width = 650, 
+    rownames = FALSE,
+    filter = "top")
+```
+
+#Triage(%) {data-icon="far fa-notes-medical"}
+
+###Triage Note Reporting (%)
+
+```{r triage_note_reporting_dt, echo = FALSE}
+datatable(head(dftn_s, n=nrow(dftn_s)), options = list(
+  pageLength = 5),
+    width = 650, 
+    rownames = FALSE,
+    filter = "top")
+```
+
+#D. ICD(%){data-icon="fas fa-procedures"}
+
+###Discharge ICD Reporting (%)
+
+```{r, discharge_icd_reporting_dt, echo= FALSE}
+datatable(head(dfdicd_s, n=nrow(dfdicd_s)), options = list(
+  pageLength = 5),
+    width = 650, 
+    rownames = FALSE,
+    filter = "top")
+```
+
+#Disp.(%) {data-icon="fas fa-diagnoses"}
+
+###Disposition Reporting (%)
+
+```{r, disposition_reporting_dt, echo= FALSE, fig.width= 10}
+datatable(head(dfd_s, n=nrow(dfd_s)), options = list(
+  pageLength = 5),
+    width = 650, 
+    rownames = FALSE,
+    filter = "top")
+```
+
+#Encounters plot {data-icon="fa-chart-bar"}
+
+###Total Encounters
+```{r}
+
+#this creates the plotly for all encounters by facility
+l <- list(
+   orientation = 'v',
+   font = list(family = "sans-serif", size = 12, color = "#000"),
+   bgcolor = "#E2E2E2", bordercolor = "#FFFFFF", borderwidth = 2)
+f <- list(
+  family = "Courier New, monospace",
+  size = 18,
+  color = "#7f7f7f"
+)
+xax <- list(
+  title = "Date",
+  titlefont = f,
+  rangeselector = list(
+    buttons = list(
+          list(
+            count = 3,
+            label = "3 mo",
+            step = "month",
+            stepmode = "backward"),
+          list(
+            count = 6,
+            label = "6 mo",
+            step = "month",
+            stepmode = "backward"),
+          list(
+            count = 1,
+            label = "1 yr",
+            step = "year",
+            stepmode = "backward"),
+          list(
+            count = 1,
+            label = "YTD",
+            step = "year",
+            stepmode = "todate"),
+          list(step = "all"))),
+  rangeslider = list(type = "date",
+                     start= "min(dft_p$date)",
+                     thickness = "0.02"))
+
+yax <- list(
+  title = "Total Encounters",
+  titlefont = f
+)
+
+dft_p <- df %>%
+  group_by(facility_name, facility_type, date) %>%#*********# 
+  summarise('Encounter Total' = n())
+
+
+####censoring####
+dft_p$facility_name <- as_factor(dft_p$facility_name)
+dft_p$facility_name <- as.numeric(dft_p$facility_name)
+dft_p$facility_name <- as.character(dft_p$facility_name)
+
+
+x1 <- dft_p$date#*********# date was created way up top in the beginning when df was read in.  Make sure whatever your date variable is, is listed here 
+y1 <- dft_p$'Encounter Total'
+c1 <- dft_p$facility_name #*********# 
+f1 <- dft_p$facility_type #*********# 
+
+
+
+
+base <- plot_ly(x = ~x1, y = ~y1, color = ~c1, type = "scatter", mode = "lines+markers", frame = ~f1, visible = "legendonly") %>%
+  layout(title = "Total Encounters" ,
+         legend = l, 
+         xaxis = list(title = "Months"),
+         yaxis = list (title = "Percentage (%)"))
+
+h <- base %>%
+  animation_opts(frame = 1000, transition = 0, redraw = FALSE, mode = "next" )%>%
+  animation_button(x = 1, xanchor = "right", y = 0, yanchor = "bottom", label = "Animate") %>%
+  animation_slider(currentvalue = list(prefix = "Facility Type: ", font = list(color="red"))) %>%
+layout(title = "Average CT Syndromic Data Completeness",
+         xaxis = xax,
+         yaxis = yax)
+h
+```
+
+```{r, echo = FALSE, eval=TRUE}
+
+# the following creates the map
+#it's a bit of a mess and there are probably better ways to do it.  The leaflet function was having problems assigning the right icons to things so I was very explicit with variable assignments
+
+#you can achieve better and dyanmic resutls with shiny if you know it and with signifcantly less code, at least for the map anyway
+df_fac_map <- df %>%
+  group_by(facility_name, facility_type, month =as.yearmon(date), date) %>% #*********# 
+  summarize(enc_tot=n()) %>%
+  group_by(month) %>%
+  group_by(facility_name, facility_type, month) %>% #*********# 
+  summarize(day_reported = n()) %>%
+  mutate(day_rep_perc = round(day_reported/days_in_month(month)*100, digits=2)) %>%
+  select(-day_reported)
+
+hosp <- df_fac_map %>%
+  ungroup() %>%
+  filter(facility_type == "Hospital") %>% #*********# 
+  select(facility_name) %>%
+  unique()
+urg <- df_fac_map %>%
+  ungroup() %>%
+  filter(facility_type == "Urgent Care") %>% #*********# 
+  select(facility_name) %>%
+  unique()
+  
+df_fac_map$month <- as.character(df_fac_map$month)
+df_fac_map <- dummy_rows(df_fac_map, select_columns = c("facility_name", "month"), dummy_value = 0)#*********# ##this is important, since we aren't spreading the table, we need another way to put in zeros for dates/months where facilities weren't reporting.  However, this creates all combinations of the varibles listed in the "c()".  This can have unexpected consequences.  Months worked for me, make sure to double check this for you.
+
+df_fac_map$facility_type[df_fac_map$facility_type == 0 & df_fac_map$facility_name %in% hosp$facility_name] <- "Hospital"#*********# 
+df_fac_map$facility_type[df_fac_map$facility_type == 0 & df_fac_map$facility_name %in% urg$facility_name] <- "Urgent Care"#*********# 
+df_fac_map$month <- as.yearmon(df_fac_map$month)
+
+fac_geos <- read_csv("a_csv_with_our_coordinates.csv")#*********# ## this is a flat file of our facility names and longitudes and latitudes.  this was made with arcGIS, but there are websites that will convert street address to lat/long, replace this with your own csv or file. 
+
+
+data(zipcode)
+
+attach_to <- fac_geos %>% 
+  select(Facility_N, x_dec_1, y_dec_1) %>%#*********# #there are our latitude and longtude and facility name variables
+  rename(facility_name = Facility_N, latitude =  y_dec_1 , longitude = x_dec_1) #*********# 
+
+df_fac_map <- left_join(df_fac_map, attach_to, by = 'facility_name') #adding the the columns with the data to the dataframe the map will use
+
+
+#the next couple of lines refers to icons (.svg icons) that are placed in the same folder as this .rmd file. they can be gathered for free at fontawesome.com, though you technically need to credit them.  use these icons, or perhaps addcircleMarkers() to the leaflet map of diff colors to indicate facility type?
+facilityIcons <- iconList(
+  urgentIcon = makeIcon("notes-medical-solid.svg", 14,14), #*********# 
+  hospitalIcon = makeIcon("hospital-symbol-solid.svg", 17, 17) #*********# 
+)
+
+df_fac_map$type <- ifelse(df_fac_map$facility_type == "Hospital", 'hospitalIcon', 'urgentIcon') #
+
+#adding colors to the dataframe based on the percentage of days reported so the legend can read the dataframe
+#you can use colorbrewer and some of the useful functions to create your own gradient pretty easily, even easier than this.
+#these colors are color blind friendly though!
+
+df_fac_map$color <- NA
+df_fac_map$color[df_fac_map$day_rep_perc ==100] <- "#253494"
+df_fac_map$color[df_fac_map$day_rep_perc >50 & df_fac_map$day_rep_perc < 100] <- "#2c7fb8"
+df_fac_map$color[df_fac_map$day_rep_perc >25 & df_fac_map$day_rep_perc <= 50] <- "#41b6c4"
+df_fac_map$color[df_fac_map$day_rep_perc >0 & df_fac_map$day_rep_perc <= 25] <- "#a1dab4"
+df_fac_map$color[df_fac_map$day_rep_perc == 0 ] <- "#ffffcc"
+df_fac_map$color[is.na(df_fac_map$color)] <- "#253494"
+df_fac_map$day_rep_perc[is.na(df_fac_map$day_rep_perc)] <- 0
+df_fac_map[is.na(df_fac_map)== TRUE] <- 0
+df_fac_map$color[is.na(df_fac_map$color)] <- "#253494"
+
+
+color <- c("#253494", "#2c7fb8",'#41b6c4',"#a1dab4","#ffffcc")
+
+#these joins work as is, but be wary, most problems with the map stem from here I find, especially with missing data
+#these joins add percent statistics to the map dataframe
+
+`Encounter Total` <-df %>%
+  group_by(facility_name,  month  =as.yearmon(date)) %>%#*********# 
+  summarize(`Encounter Total`=n()) 
+df_fac_map <- full_join(x = df_fac_map, y=`Encounter Total`, by = c("facility_name", "month"))
+df_fac_map$`Encounter Total`[is.na(df_fac_map$`Encounter Total`)] <- 0
+
+`Disposition (%)` <-  df %>%
+  mutate(has_disp = ifelse(is.na(disposition),0,1), denom = 1) %>%
+  group_by(facility_name, month =as.yearmon(date)) %>%#*********# 
+  summarize("Disposition (%)" = round(sum(has_disp)/sum(denom), 2)*100) 
+df_fac_map <- full_join(x = df_fac_map, y=`Disposition (%)`, by = c("facility_name", "month"))
+df_fac_map$`Disposition (%)`[is.na(df_fac_map$`Disposition (%)`)] <- 0
+
+`Discharge ICD (%)` <- df %>%
+  mutate(has_dicd = ifelse(is.na(discharge_icd),0,1), denom = 1) %>%
+  group_by(facility_name,  month =as.yearmon(date)) %>%#*********# 
+  summarize("Discharge ICD (%)" = round(sum(has_dicd)/sum(denom), 2)*100)
+df_fac_map <- full_join(x = df_fac_map, y=`Discharge ICD (%)`, by = c("facility_name", "month"))
+df_fac_map$`Discharge ICD (%)`[is.na(df_fac_map$`Discharge ICD (%)`)] <- 0
+
+`Triage Note (%)` <- df %>%
+  mutate(has_tn = ifelse(is.na(triage_note),0,1), denom = 1) %>%
+  group_by(facility_name, month =as.yearmon(date)) %>%#*********# 
+  summarize("Triage Note (%)" = round(sum(has_tn)/sum(denom), 2)*100)
+df_fac_map <- full_join(x = df_fac_map, y=`Triage Note (%)`, by = c("facility_name", "month"))
+df_fac_map$`Triage Note (%)`[is.na(df_fac_map$`Triage Note (%)`)] <- 0 
+
+df_fac_map <- df_fac_map %>%
+  rename(`Days Reported (%)`= day_rep_perc)
+
+
+####censoring####
+df_fac_map$facility_name <- as_factor(df_fac_map$facility_name)
+df_fac_map$facility_name <- as.numeric(df_fac_map$facility_name)
+
+
+df_fac_map1$month <- month(df_fac_map1$month)
+df1_m1<- subset(df_fac_map1, month == 1)
+df1_m2<- subset(df_fac_map1, month == 2)
+df1_m3<- subset(df_fac_map1, month == 3)
+df1_m4<- subset(df_fac_map1, month == 4)
+df1_m5<- subset(df_fac_map1, month == 5)
+df1_m6<- subset(df_fac_map1, month == 6)
+df1_m7<- subset(df_fac_map1, month == 7)
+df1_m8<- subset(df_fac_map1, month == 8)
+df1_m9<- subset(df_fac_map1, month == 9)
+df1_m10<-subset(df_fac_map1, month == 10)
+df1_m11<-subset(df_fac_map1, month == 11)
+df1_m12<-subset(df_fac_map1, month == 12)
+
+#*********#  
+#here is the map there is a ton of the variable "facility_name here"
+#if your facility name variable and type variable aren't called that, it might be easier to just change them to the name "facility_name" and  the facility type as "type" just for this, otherwise you'll be changing many lines or playing around with the replace function (hit ctrl + f on your keyboard)
+dq_map1 <- leaflet(options = leafletOptions(minZoom = 8, maxZoom = 14)) %>%
+  # Base groups
+  addProviderTiles(providers$CartoDB.PositronNoLabels) %>%
+  addProviderTiles(providers$CartoDB.PositronOnlyLabels, group = "Labels") %>%
+  setView(lat = 41.78477,lng = -72.74676, zoom = 10) %>%
+  setMaxBounds(lng1 =-69 , lat1 = 33, lng2 = -75, lat2 = 47) %>% #*********#   #these are coordinate boundries around CT, you'll want to change or get rid of this line
+  # Overlay groups
+   addMarkers(icon = facilityIcons[df_fac_map1$type], group = "Facilities", lng = df_fac_map1$longitude, lat = df_fac_map1$latitude) %>%
+  #January
+  addMarkers(icon = facilityIcons[df1_m1$type], group = "January", lng = df1_m1$longitude, lat = df1_m1$latitude, popup = paste("Facility:", df1_m1$facility_name, "<br>",
+      "Facility Type:", df1_m1$facility_type, "<br>",
+      "Encounter total:", df1_m1$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m1$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m1$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m1$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m1$`Days Reported (%)`, "<br>",
+      "Month:",month.abb[df1_m1$month])) %>%
+  addCircleMarkers(lng = df1_m1$longitude, lat = df1_m1$latitude, radius =16, group = "January", color = "black", fillColor = df1_m1$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #February
+  addMarkers(icon = facilityIcons[df1_m2$type], group = "February", lng = df1_m2$longitude, lat = df1_m2$latitude, popup = paste("Facility:", df1_m2$facility_name, "<br>",
+      "Facility Type:", df1_m2$facility_type, "<br>",
+      "Encounter total:", df1_m2$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m2$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m2$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m2$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m2$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m2$month])) %>%
+  addCircleMarkers(lng = df1_m2$longitude, lat = df1_m2$latitude,radius =16, group = "February", color = "black", fillColor = df1_m2$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #March
+  addMarkers(icon = facilityIcons[df1_m3$type], group = "March", lng = df1_m3$longitude, lat = df1_m3$latitude, popup = paste("Facility:", df1_m3$facility_name, "<br>",
+      "Facility Type:", df1_m3$facility_type, "<br>",
+      "Encounter total:", df1_m3$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m3$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m3$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m3$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m3$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m3$month])) %>%
+  addCircleMarkers(lng = df1_m3$longitude, lat = df1_m3$latitude,radius =16, group = "March", color = "black", fillColor = df1_m3$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #April
+  addMarkers(icon = facilityIcons[df1_m4$type], group = "April", lng = df1_m4$longitude, lat = df1_m4$latitude, popup = paste("Facility:", df1_m4$facility_name, "<br>",
+      "Facility Type:", df1_m4$facility_type, "<br>",
+      "Encounter total:", df1_m4$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m4$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m4$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m4$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m4$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m4$month])) %>%
+  addCircleMarkers(lng = df1_m4$longitude, lat = df1_m4$latitude,radius =16, group = "April", color = "black", fillColor = df1_m4$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #May
+  addMarkers(icon = facilityIcons[df1_m5$type], group = "May", lng = df1_m5$longitude, lat = df1_m5$latitude, popup = paste("Facility:", df1_m5$facility_name, "<br>",
+      "Facility Type:", df1_m5$facility_type, "<br>",
+      "Encounter total:", df1_m5$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m5$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m5$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m5$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m5$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m5$month])) %>%
+  addCircleMarkers(lng = df1_m5$longitude, lat = df1_m5$latitude,radius =16, group = "May", color = "black", fillColor = df1_m6$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #June
+  addMarkers(icon = facilityIcons[df1_m6$type], group = "June", lng = df1_m6$longitude, lat = df1_m6$latitude, popup = paste("Facility:", df1_m6$facility_name, "<br>",
+      "Facility Type:", df1_m6$facility_type, "<br>",
+      "Encounter total:", df1_m6$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m6$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m6$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m6$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m6$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m6$month])) %>%
+  addCircleMarkers(lng = df1_m6$longitude, lat = df1_m6$latitude, radius =16, group = "June", color = "black", fillColor = df1_m6$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #July
+  addMarkers(icon = facilityIcons[df1_m7$type], group = "July", lng = df1_m7$longitude, lat = df1_m7$latitude, popup = paste("Facility:", df1_m7$facility_name, "<br>",
+      "Facility Type:", df1_m7$facility_type, "<br>",
+      "Encounter total:", df1_m7$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m7$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m7$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m7$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m7$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m7$month])) %>%
+  addCircleMarkers(lng = df1_m7$longitude, lat = df1_m7$latitude,radius =16, group = "July", color = "black", fillColor = df1_m7$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #August
+  addMarkers(icon = facilityIcons[df1_m8$type], group = "August", lng = df1_m8$longitude, lat = df1_m8$latitude, popup = paste("Facility:", df1_m8$facility_name, "<br>",
+      "Facility Type:", df1_m8$facility_type, "<br>",
+      "Encounter total:", df1_m8$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m8$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m8$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m8$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m8$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m8$month])) %>%
+  addCircleMarkers(lng = df1_m8$longitude, lat = df1_m8$latitude,radius =16, group = "August", color = "black", fillColor = df1_m8$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #September
+  addMarkers(icon = facilityIcons[df1_m9$type], group = "September", lng = df1_m9$longitude, lat = df1_m9$latitude, popup = paste("Facility:", df1_m9$facility_name, "<br>",
+      "Facility Type:", df1_m9$facility_type, "<br>",
+      "Encounter total:", df1_m9$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m9$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m9$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m9$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m9$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m9$month])) %>%
+  addCircleMarkers(lng = df1_m9$longitude, lat = df1_m9$latitude,radius =16, group = "September", color = "black", fillColor = df1_m9$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #October
+  addMarkers(icon = facilityIcons[df1_m10$type], group = "October", lng = df1_m10$longitude, lat = df1_m10$latitude, popup = paste("Facility:", df1_m10$facility_name, "<br>",
+      "Facility Type:", df1_m10$facility_type, "<br>",
+      "Encounter total:", df1_m10$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m10$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m10$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m10$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m10$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m10$month])) %>%
+  addCircleMarkers(lng = df1_m10$longitude, lat = df1_m10$latitude,radius =16, group = "October", color = "black", fillColor = df1_m10$color, stroke = TRUE, weight = 1,  fillOpacity = 0.8) %>%
+  #November
+  addMarkers(icon = facilityIcons[df1_m11$type], group = "November", lng = df1_m11$longitude, lat = df1_m11$latitude, popup = paste("Facility:", df1_m11$facility_name, "<br>",
+      "Facility Type:", df1_m11$facility_type, "<br>",
+      "Encounter total:", df1_m11$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m11$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m11$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m11$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m11$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m11$month])) %>%
+  addCircleMarkers(lng = df1_m11$longitude, lat = df1_m11$latitude,radius =16, group = "November", color = "black", fillColor = df1_m11$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  #December
+  addMarkers(icon = facilityIcons[df1_m12$type], group = "December", lng = df1_m12$longitude, lat = df1_m12$latitude, popup = paste("Facility:", df1_m12$facility_name, "<br>",
+      "Facility Type:", df1_m12$facility_type, "<br>",
+      "Encounter total:", df1_m12$`Encounter Total`, "<br>",
+      "Triage Note (%):", df1_m12$`Triage Note (%)`, "<br>",
+      "Discharge ICD (%):", df1_m12$`Discharge ICD (%)`, "<br>",
+      "Disposition (%):", df1_m12$`Disposition (%)`, "<br>",
+      "Days Reported (%):", df1_m12$`Days Reported (%)`, "<br>",
+      "Month:", month.abb[df1_m12$month])) %>%
+  addCircleMarkers(lng = df1_m12$longitude, lat = df1_m12$latitude,radius =16, group = "December", color = "black", fillColor = df1_m12$color, stroke = TRUE, weight = 1, fillOpacity = 0.8) %>%
+  # Layers control
+  addLayersControl(
+    overlayGroups = c("Facilities", "Labels", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"),
+    options = layersControlOptions(collapsed = TRUE)
+  ) %>%
+  addMeasure() %>%
+  hideGroup(group = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")) %>%
+  addLegend(
+    position = "bottomright",
+    labels  = c("100", "99 - 50", "49 - 25", "24 - 1", "0"),
+    bins = 5,
+    colors = color,
+    title= "Percent (%) of Days Reported"
+  )
+
+```
+
+#Map1 {data-icon="fas fa-globe-americas"}
+### 
+```{r}
+#this just prints the map on the dashboard
+dq_map1 
+#htmlwidgets::saveWidget(as_widget(map), "map.html") use this to save your own map to it's own .html file if you wish
+```
+
+
+#Acknowledgements
+###
+
+All icons were provided from Font Awesome at fontawesome.com
+
+Maps use base maps provided by OpenStreetMap and CartoDB
+
+
+
