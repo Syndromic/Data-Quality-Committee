@@ -6,5 +6,5 @@
 * **dq_flex_template.html** - Sample interactive html dashboard 
 
 ![Alt text](screenshot/screenshot.PNG?raw=true)
-
-
+![Alt text](screenshot/screenshot_2.PNG?raw=true)
+![Alt text](screenshot/screenshot_3.PNG?raw=true)
