@@ -9,6 +9,7 @@ This directory contains example data and coordinate file that can be used to det
 * **example_coordinate_file.csv** - coordinate file of example from April DQC webinar. Columns: ED, coord_1, coord_2
 * **example satscan_data.csv** - visit counts by date and ED, example from April DQC webinar. Columns: ED, Count, and Date. 
 * **formatting_satscan_data.R** - script pulls data using ESSENCE table builder API URL. It formats data into SatScan format as seen in the "satscan_data.csv" and creates a coordinate file.  
+* **ESSENCE_API_help_Guide.html** - help guide on how to use the ESSENCE API urls created by Aaron Kite Powell 
 
 ### Pulling data from ESSENCE using ESSENCE APIs
 
